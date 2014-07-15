@@ -1,0 +1,104 @@
+
+Predicting Weight Training Performance from Sensor Data
+========================================================
+
+## Synopsis
+
+The objective of this analysis is to predict weight training performance
+using sensor data.  The original study collected data from accelerometers on
+the belt, forearm, arm, and dumbbell of 6 participants who were asked
+to perform barbell lifts correctly and incorrectly in 5 different ways.
+More information on the study is available from the website here:
+http://groupware.les.inf.puc-rio.br/har (see the section on the Weight 
+Lifting Exercise Dataset).
+
+After some minimal data preprocessing, a random forests model was fit to
+a subset of the available training data.  The model achieved an in-sample
+error of less than 1%.  The remaining training data was used for model validation,
+and the predicted out-of-sample error was also less than 1%.
+
+## Data Processing
+### Analysis System Information
+```{r systemInformation}
+R.version$platform
+R.version$version.string
+```
+### Data and Codebook
+The analysis data was downloaded from 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv, and 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+```{r data}
+setwd("~/Documents/datasciencecoursera/PML Project")
+train <- read.csv("./pml-training.csv")
+dim(train)
+```
+The training data consists of 19622 observations of 160 variables.  A more detailed
+description of the data is available here:
+http://groupware.les.inf.puc-rio.br/har
+
+Briefly, however, the data consists of participant name, timestamp information,
+raw sensor data, summary sensor data, and a "classe" variable indicating whether
+the exercise was performed correctly or one of 4 varieties of incorrectness.
+Note that the index and timestamp information completely predict the classe variable.
+
+### Data Pre-Processing
+```{r dataRead}
+
+library(caret)
+set.seed(333)
+
+trainRaw <- train[,c(8, 9, 10, 11, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 60, 61, 62, 63, 64, 65, 66, 67, 68, 84, 85, 86, 102, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 140, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160)]
+#=================
+# Split the training set into training and validation
+#=================
+inTrain <- createDataPartition(y=trainRaw$classe, p=.75, list=FALSE)
+training <- trainRaw[inTrain,]
+validation <- trainRaw[-inTrain,]
+
+M <- abs(cor(training[,-53])); diag(M)<-0
+which(M > .95, arr.ind=T)
+plot(training[,31], training[,33])
+# Obvious outlier.  Probably a mistake.
+# Remove from data
+library(outliers)
+outlier_tf = outlier(training$gyros_dumbbell_x, logical=TRUE)
+find_outlier1=which(outlier_tf==TRUE, arr.ind=TRUE)
+training2 <- training[-find_outlier1,]
+# Again, a possible outlier in the accel_belt_x variable
+outlier_tf = outlier(training2$accel_belt_x, logical=TRUE)
+find_outlier2=which(outlier_tf==TRUE, arr.ind=TRUE)
+training3 <- training2[-find_outlier2,]
+```
+The raw sensor data was subsetted for modeling (along with the response variable,
+"classe"), resulting in 52 prediction variables.  The data was split into a
+training and validation set.
+
+Some initial work was done to identify highly correlated variables; in the process
+several outlier points were found, which appeared to be data entry errors.  They
+were removed from the training data.
+
+## Model Building
+```{r modelBuilding}
+modFitRF <- train(classe ~., data=training3, method="rf", prox=TRUE,
+                  trControl = trainControl(method = "cv", number = 4))
+print(modFitRF)
+
+```
+A number of different modeling techniques were attempted using the caret package
+on the training data. The models were then compared on the validation data.  Those
+included trees (method=rpart), boosted trees (method=gbm), and linear discriminant
+analysis (method=lda).  A random tree model (method=rf) was selected as having
+the lowest in-sample (training) and out-of-sample (validation) miss-classification
+error.
+
+## Results
+```{r results}
+print(modFitRF$finalModel)
+prf <- predict(modFitRF, validation)
+table(prf, validation$classe)
+```
+On the training data (in-sample), the classification accuracy was .9944.  On the
+validation data (out-of-sample), the classification accuracy was .9949.  These
+remarkably high accuracy rates indicate that the sensor data is highly predictive
+of weight-training performance.
